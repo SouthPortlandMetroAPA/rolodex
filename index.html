@@ -252,9 +252,16 @@ async function doLookup() {
 
     const list = $('#divisionList');
     if (!data.divisions || !data.divisions.length) {
-      list.innerHTML = '<div class="status info">' +
-        'No captain PDFs are available for your divisions yet. ' +
-        'Check back later — or email the league if this seems wrong.</div>';
+      if (data.notCaptain) {
+        list.innerHTML = '<div class="status info">' +
+          'Captain contacts are restricted to division captains. You\'re rostered ' +
+          'on a team this session, but not as the captain. If you think this is wrong, ' +
+          'email the league office.</div>';
+      } else {
+        list.innerHTML = '<div class="status info">' +
+          'No captain PDFs are available for your divisions yet. ' +
+          'Check back later — or email the league if this seems wrong.</div>';
+      }
     } else {
       list.innerHTML = data.divisions.map((d, i) => (
         '<button class="btn-div" data-idx="' + i + '">' +

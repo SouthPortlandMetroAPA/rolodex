@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<!--
+════════════════════════════════════════════════════════════════════════
+  Rolodex — captain-contact self-service for APA members.
+  v0.1 (2026-05-30). Standalone GitHub Pages, no Supabase keys client-side.
+
+  Flow:
+    1. Member enters their APA number (5 digits or 8 digits incl. 972 prefix).
+    2. Page POSTs to the apa-mailer GAS endpoint with action=lookup.
+    3. GAS resolves: name, masked email-on-file, list of divisions they
+       play in this session for which a captain PDF has been uploaded.
+    4. Page renders one button per division.
+    5. On tap, page POSTs action=send → GAS fetches the PDF from R2 and
+       emails it via GmailApp from soldans@southportlandmetroapa.com.
+    6. Confirmation: "✓ Sent to j***@gmail.com"
+
+  Why no Supabase keys here: GAS holds them. The public page only knows
+  the GAS URL. This means rotating the anon key is a GAS-only change;
+  the public page doesn't need to redeploy.
+
+  REBRANDING:
+    Change APP_NAME below in the <script> block — that's the only place
+    the brand string lives. Title, header, and footer hydrate from it.
+════════════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rolodex — APA Captain Contacts</title>
+<meta name="description" content="Get captain contact info for your APA divisions">
+<meta name="theme-color" content="#0031a1">
+<script src="version.js"></script>
+<style>
+  :root {
+    --spm-primary: #ea002a;
+    --spm-accent:  #0031a1;
+    --bg:          #f3f3f3;
+    --card:        #ffffff;
+    --text:        #1a1a1a;
+    --muted:       #6b7280;
+    --border:      #e5e7eb;
+    --success:     #16a34a;
+    --warn:        #f59e0b;
+    --danger:      #ea002a;
+    --radius:      14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  body { min-height: 100vh; padding-bottom: 40px; }
+
+  .header {
+    background: linear-gradient(135deg, var(--spm-primary), var(--spm-accent));
+    color: #fff;
+    padding: calc(18px + env(safe-area-inset-top)) 16px 16px;
+    text-align: center;
+  }
+  .header h1 { font-size: 1.3rem; font-weight: 800; letter-spacing: 0.5px; }
+  .header .sub { font-size: 0.82rem; opacity: 0.85; margin-top: 4px; }
+
+  .container { max-width: 520px; margin: 0 auto; padding: 16px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  label { display: block; font-size: 0.8rem; font-weight: 700; color: var(--spm-accent); margin-bottom: 6px; }
+  input[type="text"] {
+    width: 100%;
+    padding: 14px;
+    font-size: 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    font-variant-numeric: tabular-nums;
+  }
+  input[type="text"]:focus { border-color: var(--spm-accent); }
+  .hint { font-size: 0.78rem; color: var(--muted); margin-top: 6px; }
+
+  .btn {
+    width: 100%;
+    background: var(--spm-accent); color: #fff;
+    border: 0; border-radius: 10px;
+    padding: 14px;
+    font-size: 1rem; font-weight: 800; letter-spacing: 0.3px;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+  .btn:active { filter: brightness(1.08); }
+  .btn[disabled] { opacity: 0.6; cursor: not-allowed; }
+
+  .btn-div {
+    width: 100%;
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: left;
+    font-weight: 700; font-size: 0.95rem;
+    cursor: pointer;
+    margin-top: 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .btn-div:hover { border-color: var(--spm-accent); }
+  .btn-div .div-icon { font-size: 1.2rem; flex-shrink: 0; }
+  .btn-div .div-meta { font-size: 0.74rem; color: var(--muted); font-weight: 500; margin-top: 2px; }
+  .btn-div:disabled { opacity: 0.5; cursor: wait; }
+  .btn-div.sent { background: #eef9f1; border-color: var(--success); }
+  .btn-div.sent .div-icon { color: var(--success); }
+
+  .status {
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    margin-top: 10px;
+  }
+  .status.err  { background: #fde8ec; color: var(--danger); }
+  .status.ok   { background: #eef9f1; color: var(--success); }
+  .status.info { background: #eef4ff; color: var(--spm-accent); }
+
+  .footer {
+    text-align: center; padding: 20px 16px;
+    font-size: 0.72rem; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1 id="appName">Rolodex</h1>
+  <div class="sub">Captain contacts for your divisions</div>
+</div>
+
+<div class="container">
+
+  <div class="card" id="lookupCard">
+    <label for="apaInput">Your APA number</label>
+    <input type="text" id="apaInput" inputmode="numeric" autocomplete="off"
+           placeholder="e.g. 12345 or 97212345" maxlength="12">
+    <div class="hint">
+      5-digit member number works (we'll prepend 972 automatically). 8-digit number with the prefix also works.
+    </div>
+    <button class="btn" id="lookupBtn">Look up my divisions</button>
+    <div id="lookupStatus"></div>
+  </div>
+
+  <div class="card" id="divisionsCard" style="display:none">
+    <div style="margin-bottom:6px">
+      <span style="font-weight:800;color:var(--spm-accent)" id="memberName">—</span>
+      <span class="hint" id="sessionLabel" style="margin-left:6px"></span>
+    </div>
+    <div class="hint" style="margin-bottom:12px">
+      We'll email the captain PDF to <strong id="maskedEmail">—</strong>.
+      Tap a division to send it now.
+    </div>
+    <div id="divisionList"></div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <span>South Portland Metro APA &middot; <a href="https://southportlandmetroapa.github.io/" style="color:var(--muted)">home</a></span><br>
+  <span>v<span id="vBadge">0.1</span></span>
+</div>
+
+<script>
+const APP_NAME = 'Rolodex';
+
+/* The apa-mailer GAS deploy URL. UPDATE AFTER DEPLOY.
+   Format: https://script.google.com/macros/s/AKfy.../exec
+   See tools/claude/rolodex-mailer/README.md for the deploy steps. */
+const MAILER_URL = '<<MAILER_URL_PLACEHOLDER>>';
+
+document.title = APP_NAME;
+document.getElementById('appName').textContent = APP_NAME;
+document.getElementById('vBadge').textContent = window.APP_VERSION || '0.1';
+
+const $ = sel => document.querySelector(sel);
+function setStatus(el, msg, kind) {
+  el.innerHTML = msg ? '<div class="status ' + (kind || 'info') + '">' + msg + '</div>' : '';
+}
+
+async function callMailer(payload) {
+  if (!MAILER_URL || MAILER_URL.indexOf('<<') === 0) {
+    throw new Error('Mailer is not configured yet. Try again in a few minutes.');
+  }
+  /* GAS Web Apps: POST with text/plain so the request is "simple" and
+     skips CORS preflight (which GAS doesn't handle). The body is still
+     JSON; the GAS doPost() parses e.postData.contents as JSON. */
+  const r = await fetch(MAILER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+    redirect: 'follow'
+  });
+  const txt = await r.text();
+  let data;
+  try { data = JSON.parse(txt); }
+  catch (_) { throw new Error('Bad response from mailer (' + r.status + ')'); }
+  if (!data.ok) throw new Error(data.error || 'Lookup failed.');
+  return data;
+}
+
+let _state = { apaNumber: null, divisions: [] };
+
+async function doLookup() {
+  const btn   = $('#lookupBtn');
+  const input = $('#apaInput');
+  const apa   = input.value.trim().replace(/[^0-9]/g, '');
+  if (!apa) { setStatus($('#lookupStatus'), 'Enter your APA number first.', 'err'); return; }
+  if (apa.length !== 5 && apa.length !== 8) {
+    setStatus($('#lookupStatus'), 'APA number should be 5 or 8 digits.', 'err'); return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Looking up…';
+  setStatus($('#lookupStatus'), '', '');
+  try {
+    const data = await callMailer({ action: 'lookup', apa_number: apa });
+    _state.apaNumber = apa;
+    _state.divisions = data.divisions;
+
+    $('#memberName').textContent  = data.name || '(member)';
+    $('#maskedEmail').textContent = data.maskedEmail || '(unknown)';
+    $('#sessionLabel').textContent = data.sessionName ? '· ' + data.sessionName : '';
+
+    const list = $('#divisionList');
+    if (!data.divisions || !data.divisions.length) {
+      list.innerHTML = '<div class="status info">' +
+        'No captain PDFs are available for your divisions yet. ' +
+        'Check back later — or email the league if this seems wrong.</div>';
+    } else {
+      list.innerHTML = data.divisions.map((d, i) => (
+        '<button class="btn-div" data-idx="' + i + '">' +
+          '<span class="div-icon">📨</span>' +
+          '<span style="flex:1">' +
+            '<div>' + escHtml(d.division_name || '(division)') + '</div>' +
+            '<div class="div-meta">Division ' + escHtml(d.division_number) +
+              (d.format ? ' · ' + escHtml(d.format) : '') +
+              (d.night_of_play ? ' · ' + escHtml(d.night_of_play) : '') +
+            '</div>' +
+          '</span>' +
+        '</button>'
+      )).join('');
+      list.querySelectorAll('.btn-div').forEach(b => {
+        b.addEventListener('click', () => doSend(+b.dataset.idx, b));
+      });
+    }
+
+    $('#divisionsCard').style.display = '';
+  } catch (e) {
+    setStatus($('#lookupStatus'), escHtml(e.message), 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Look up my divisions';
+  }
+}
+
+async function doSend(idx, btnEl) {
+  const d = _state.divisions[idx];
+  if (!d) return;
+  const orig = btnEl.innerHTML;
+  btnEl.disabled = true;
+  btnEl.innerHTML = '<span class="div-icon">⏳</span>' +
+    '<span style="flex:1"><div>Sending…</div>' +
+    '<div class="div-meta">' + escHtml(d.division_name) + '</div></span>';
+  try {
+    const data = await callMailer({
+      action: 'send',
+      apa_number: _state.apaNumber,
+      division_id: d.division_id
+    });
+    btnEl.classList.add('sent');
+    btnEl.innerHTML = '<span class="div-icon">✓</span>' +
+      '<span style="flex:1"><div>Sent to ' + escHtml(data.sentTo) + '</div>' +
+      '<div class="div-meta">' + escHtml(d.division_name) + '</div></span>';
+  } catch (e) {
+    btnEl.innerHTML = orig;
+    btnEl.disabled = false;
+    setStatus($('#lookupStatus'), escHtml(e.message), 'err');
+  }
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+$('#lookupBtn').addEventListener('click', doLookup);
+$('#apaInput').addEventListener('keypress', e => {
+  if (e.key === 'Enter') doLookup();
+});
+$('#apaInput').focus();
+</script>
+</body>
+</html>

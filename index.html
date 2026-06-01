@@ -138,11 +138,11 @@
 <div class="container">
 
   <div class="card" id="lookupCard">
-    <label for="apaInput">Your APA number</label>
-    <input type="text" id="apaInput" inputmode="numeric" autocomplete="off"
-           placeholder="e.g. 12345 or 97212345" maxlength="12">
+    <label for="apaInput">Your APA number or email</label>
+    <input type="text" id="apaInput" inputmode="email" autocomplete="email"
+           placeholder="e.g. 12345 or you@example.com" maxlength="80">
     <div class="hint">
-      5-digit member number works (we'll prepend 972 automatically). 8-digit number with the prefix also works.
+      5-digit member number works (we'll prepend 972 automatically). 8-digit member number or your email on file with APA also works.
     </div>
     <button class="btn" id="lookupBtn">Look up my divisions</button>
     <div id="lookupStatus"></div>
@@ -210,17 +210,40 @@ let _state = { apaNumber: null, divisions: [] };
 async function doLookup() {
   const btn   = $('#lookupBtn');
   const input = $('#apaInput');
-  const apa   = input.value.trim().replace(/[^0-9]/g, '');
-  if (!apa) { setStatus($('#lookupStatus'), 'Enter your APA number first.', 'err'); return; }
-  if (apa.length !== 5 && apa.length !== 8) {
-    setStatus($('#lookupStatus'), 'APA number should be 5 or 8 digits.', 'err'); return;
+  const raw   = input.value.trim();
+  if (!raw) { setStatus($('#lookupStatus'), 'Enter your APA number or email first.', 'err'); return; }
+
+  /* Validation branches by shape:
+       - Contains @ → treat as email, light syntax check
+       - Otherwise → digits-only, must be 5 or 8 chars
+     The GAS endpoint's papertrail_lookup_player RPC accepts either, so
+     we just pass the user input through after this light pre-check. */
+  let identifier;
+  if (raw.indexOf('@') >= 0) {
+    /* Email path */
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(raw)) {
+      setStatus($('#lookupStatus'), 'That doesn\'t look like a valid email.', 'err');
+      return;
+    }
+    identifier = raw.toLowerCase();
+  } else {
+    /* APA-number path */
+    const digits = raw.replace(/[^0-9]/g, '');
+    if (digits.length !== 5 && digits.length !== 8) {
+      setStatus($('#lookupStatus'), 'APA number should be 5 or 8 digits (or use your email).', 'err');
+      return;
+    }
+    identifier = digits;
   }
   btn.disabled = true;
   btn.textContent = 'Looking up…';
   setStatus($('#lookupStatus'), '', '');
   try {
-    const data = await callMailer({ action: 'lookup', apa_number: apa });
-    _state.apaNumber = apa;
+    /* `apa_number` is the historical field name on the GAS endpoint; the
+       RPC actually accepts an email there too. Keeping the field name
+       avoids a deploy on the GAS side. */
+    const data = await callMailer({ action: 'lookup', apa_number: identifier });
+    _state.apaNumber = identifier;
     _state.divisions = data.divisions;
 
     $('#memberName').textContent  = data.name || '(member)';
@@ -307,10 +330,10 @@ function forgetApa() {
 const _origDoLookup = doLookup;
 doLookup = async function() {
   await _origDoLookup();
-  /* Persist only if input is filled (a successful render implies lookup
-     parsed OK; even if 0 divisions came back, the apa# is still valid). */
-  const v = $('#apaInput').value.trim().replace(/[^0-9]/g, '');
-  if (v && (v.length === 5 || v.length === 8)) rememberApa(v);
+  /* Persist whatever was typed if it passes our pre-check (digits OR
+     email shape). `_state.apaNumber` was set inside _origDoLookup
+     post-validation, so use that as the canonical form. */
+  if (_state.apaNumber) rememberApa(_state.apaNumber);
 };
 
 $('#lookupBtn').addEventListener('click', doLookup);

@@ -176,10 +176,15 @@
     border-radius: 10px;
     font-size: 0.88rem;
     margin-top: 10px;
+    line-height: 1.45;
   }
   .status.err  { background: #fde8ec; color: var(--danger); }
   .status.ok   { background: #eef9f1; color: var(--success); }
   .status.info { background: #eef4ff; color: var(--spm-accent); }
+  .status a {
+    color: inherit; font-weight: 700;
+    text-decoration: underline;
+  }
 
   .footer {
     text-align: center; padding: 20px 16px;
@@ -191,7 +196,7 @@
 
 <div class="header">
   <h1 id="appName">Rolodex</h1>
-  <div class="sub">Captain contacts for your divisions</div>
+  <div class="sub">Captain contacts for South Portland Metro APA divisions</div>
 </div>
 
 <div class="container">
@@ -320,17 +325,19 @@ async function doLookup() {
 
     const list = $('#divisionList');
     if (!data.divisions || !data.divisions.length) {
+      const leagueLink = '<a href="mailto:southportlandmetroapa@gmail.com?subject=Rolodex%20captain%20access">' +
+                          'southportlandmetroapa@gmail.com</a>';
       if (data.notCaptain) {
         list.innerHTML = '<div class="status info">' +
-          '<strong>Captain contacts are captain-only.</strong><br>' +
-          'You\'re rostered on a team this session, but not as the captain.<br><br>' +
-          'If you think this is wrong, email the league office.' +
+          '<strong>Captain contacts are restricted to South Portland Metro APA division captains.</strong><br>' +
+          'You\'re rostered on a team this session, but not as the captain of an SPM division.<br><br>' +
+          'If you think this is wrong, email ' + leagueLink + '.' +
           '</div>';
       } else {
         list.innerHTML = '<div class="status info">' +
-          '<strong>No captain PDFs uploaded yet.</strong><br>' +
+          '<strong>No SPM captain PDFs uploaded yet.</strong><br>' +
           'Check back later.<br><br>' +
-          'If you think this is wrong, email the league office.' +
+          'If you think this is wrong, email ' + leagueLink + '.' +
           '</div>';
       }
     } else {

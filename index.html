@@ -426,6 +426,28 @@ $('#apaInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') doLookup();
 });
 
+/* Strip whitespace as the user types / pastes. For digit-shape input
+   (no '@'), strip ALL whitespace including internal — APA numbers never
+   contain spaces. For email-shape input (has '@'), strip only leading
+   whitespace so they can still type a real address. On blur, also trim
+   trailing whitespace for the email case. */
+$('#apaInput').addEventListener('input', e => {
+  const v = e.target.value;
+  const hasAt = v.indexOf('@') >= 0;
+  const cleaned = hasAt
+    ? v.replace(/^\s+/, '')              // emails: strip leading only
+    : v.replace(/\s+/g, '');             // digits: strip ALL whitespace
+  if (v !== cleaned) {
+    /* Preserve caret position so we don't fight the user mid-typing */
+    const pos = Math.max(0, e.target.selectionStart - (v.length - cleaned.length));
+    e.target.value = cleaned;
+    try { e.target.setSelectionRange(pos, pos); } catch (_) {}
+  }
+});
+$('#apaInput').addEventListener('blur', e => {
+  e.target.value = e.target.value.trim();
+});
+
 /* Restore + auto-lookup if we remember an APA. Renders a dedicated
    "Not you?" affordance in its own meta-line BELOW the helper text
    (rather than tacked onto the same paragraph) so the link doesn't

@@ -79,7 +79,30 @@
     font-variant-numeric: tabular-nums;
   }
   input[type="text"]:focus { border-color: var(--spm-accent); }
-  .hint { font-size: 0.78rem; color: var(--muted); margin-top: 6px; }
+  .hint {
+    font-size: 0.78rem; color: var(--muted);
+    margin-top: 8px; line-height: 1.5;
+  }
+  .hint ul {
+    list-style: none; padding: 0; margin: 4px 0 0;
+  }
+  .hint li {
+    padding: 2px 0; font-variant-numeric: tabular-nums;
+  }
+  .hint li::before {
+    content: '• '; color: var(--spm-accent); font-weight: 700;
+  }
+  .meta-line {
+    display: flex; align-items: baseline; gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .meta-line a {
+    color: var(--spm-accent); font-weight: 700;
+    text-decoration: none;
+  }
+  .meta-line a:hover { text-decoration: underline; }
 
   .btn {
     width: 100%;
@@ -92,6 +115,42 @@
   }
   .btn:active { filter: brightness(1.08); }
   .btn[disabled] { opacity: 0.6; cursor: not-allowed; }
+
+  /* Member identity block at top of divisions card */
+  .member-head {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .member-name {
+    font-weight: 800; font-size: 1.1rem;
+    color: var(--spm-accent);
+    line-height: 1.2;
+  }
+  .member-session {
+    font-size: 0.82rem; color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* "PDFs go to ..." chip */
+  .send-target {
+    display: flex; align-items: center; gap: 10px;
+    background: #f8faff;
+    border: 1px solid #dbe7ff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.86rem; color: var(--text);
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+  .send-target .send-icon { font-size: 1.15rem; flex-shrink: 0; }
+  .send-target strong { color: var(--spm-accent); font-variant-numeric: tabular-nums; }
+
+  /* Prompt above division buttons */
+  .divisions-prompt {
+    font-size: 0.84rem; font-weight: 700; color: var(--text);
+    margin-bottom: 6px;
+  }
 
   .btn-div {
     width: 100%;
@@ -142,21 +201,30 @@
     <input type="text" id="apaInput" inputmode="email" autocomplete="email"
            placeholder="e.g. 12345 or you@example.com" maxlength="80">
     <div class="hint">
-      5-digit member number works (we'll prepend 972 automatically). 8-digit member number or your email on file with APA also works.
+      Any of these work:
+      <ul>
+        <li>5-digit member number (e.g. <strong>12345</strong>)</li>
+        <li>8-digit member number (e.g. <strong>97212345</strong>)</li>
+        <li>Email address on file with APA</li>
+      </ul>
     </div>
     <button class="btn" id="lookupBtn">Look up my divisions</button>
     <div id="lookupStatus"></div>
   </div>
 
   <div class="card" id="divisionsCard" style="display:none">
-    <div style="margin-bottom:6px">
-      <span style="font-weight:800;color:var(--spm-accent)" id="memberName">—</span>
-      <span class="hint" id="sessionLabel" style="margin-left:6px"></span>
+    <div class="member-head">
+      <div class="member-name" id="memberName">—</div>
+      <div class="member-session" id="sessionLabel"></div>
     </div>
-    <div class="hint" style="margin-bottom:12px">
-      We'll email the captain PDF to <strong id="maskedEmail">—</strong>.
-      Tap a division to send it now.
+
+    <div class="send-target">
+      <span class="send-icon">📨</span>
+      <span>PDFs are emailed to <strong id="maskedEmail">—</strong></span>
     </div>
+
+    <div class="divisions-prompt">Tap a division to send it now:</div>
+
     <div id="divisionList"></div>
   </div>
 
@@ -254,13 +322,16 @@ async function doLookup() {
     if (!data.divisions || !data.divisions.length) {
       if (data.notCaptain) {
         list.innerHTML = '<div class="status info">' +
-          'Captain contacts are restricted to division captains. You\'re rostered ' +
-          'on a team this session, but not as the captain. If you think this is wrong, ' +
-          'email the league office.</div>';
+          '<strong>Captain contacts are captain-only.</strong><br>' +
+          'You\'re rostered on a team this session, but not as the captain.<br><br>' +
+          'If you think this is wrong, email the league office.' +
+          '</div>';
       } else {
         list.innerHTML = '<div class="status info">' +
-          'No captain PDFs are available for your divisions yet. ' +
-          'Check back later — or email the league if this seems wrong.</div>';
+          '<strong>No captain PDFs uploaded yet.</strong><br>' +
+          'Check back later.<br><br>' +
+          'If you think this is wrong, email the league office.' +
+          '</div>';
       }
     } else {
       list.innerHTML = data.divisions.map((d, i) => (
@@ -348,23 +419,29 @@ $('#apaInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') doLookup();
 });
 
-/* Restore + auto-lookup if we remember an APA. Adds a "Forget me" link
-   to the hint area so the user has a one-tap reset. */
+/* Restore + auto-lookup if we remember an APA. Renders a dedicated
+   "Not you?" affordance in its own meta-line BELOW the helper text
+   (rather than tacked onto the same paragraph) so the link doesn't
+   get lost in the prose. */
 (function bootRemember() {
   const remembered = recallApa();
   if (remembered) {
     $('#apaInput').value = remembered;
-    /* Inject a small "Not you? Forget me" affordance */
+    /* Insert a separate meta-line, not into the hint paragraph */
     const hint = document.querySelector('.hint');
-    if (hint) {
-      hint.innerHTML += ' &middot; <a href="#" id="forgetMeLink" style="color:var(--spm-accent)">Not you?</a>';
+    if (hint && !document.getElementById('notYouMeta')) {
+      const meta = document.createElement('div');
+      meta.className = 'meta-line';
+      meta.id = 'notYouMeta';
+      meta.innerHTML = 'Saved from a previous visit. <a href="#" id="forgetMeLink">Not you?</a>';
+      hint.parentNode.insertBefore(meta, hint.nextSibling);
       document.getElementById('forgetMeLink').addEventListener('click', e => {
         e.preventDefault();
         forgetApa();
         $('#apaInput').value = '';
         $('#divisionsCard').style.display = 'none';
         $('#apaInput').focus();
-        e.target.style.display = 'none';
+        meta.style.display = 'none';
       });
     }
     /* Auto-fire lookup on a microtask so the page paints first. */

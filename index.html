@@ -367,9 +367,53 @@ async function doLookup() {
   }
 }
 
+/* Must match the GAS RATE_LIMIT_SECONDS constant in apa-mailer/Code.gs.
+   The mailer rejects any send within this window with "Please wait a few
+   seconds...". Mirroring it here lets us disable the buttons proactively
+   so the user never sees that error. If the GAS constant changes, bump
+   this too. */
+const RATE_LIMIT_SECONDS = 15;
+
+/* Throttle state — shared across all division buttons. Buttons that
+   haven't been successfully sent yet get a per-second countdown
+   ("Try again in 12s") and re-enable when the window expires.
+   Already-sent buttons stay in the ✓ state and don't take the lockdown. */
+let _throttleUntil = 0;
+let _throttleTimer = null;
+
+function rolApplyThrottle(remainingMs) {
+  if (_throttleTimer) { clearInterval(_throttleTimer); _throttleTimer = null; }
+  _throttleUntil = Date.now() + remainingMs;
+  const tick = () => {
+    const remain = Math.max(0, Math.ceil((_throttleUntil - Date.now()) / 1000));
+    document.querySelectorAll('.btn-div').forEach(b => {
+      if (b.classList.contains('sent')) return;   /* sticky ✓ state */
+      const meta = b.querySelector('.div-meta');
+      if (remain > 0) {
+        b.disabled = true;
+        if (meta && !b.dataset.origMeta) b.dataset.origMeta = meta.innerHTML;
+        if (meta) meta.innerHTML = 'Available again in ' + remain + 's…';
+      } else {
+        b.disabled = false;
+        if (meta && b.dataset.origMeta) meta.innerHTML = b.dataset.origMeta;
+        delete b.dataset.origMeta;
+      }
+    });
+    if (remain <= 0) {
+      clearInterval(_throttleTimer);
+      _throttleTimer = null;
+    }
+  };
+  tick();
+  _throttleTimer = setInterval(tick, 1000);
+}
+
 async function doSend(idx, btnEl) {
   const d = _state.divisions[idx];
   if (!d) return;
+  /* If still throttled (e.g. server-issued retry-after), refuse client-side. */
+  if (Date.now() < _throttleUntil) return;
+
   const orig = btnEl.innerHTML;
   btnEl.disabled = true;
   btnEl.innerHTML = '<span class="div-icon">⏳</span>' +
@@ -385,10 +429,19 @@ async function doSend(idx, btnEl) {
     btnEl.innerHTML = '<span class="div-icon">✓</span>' +
       '<span style="flex:1"><div>Sent to ' + escHtml(data.sentTo) + '</div>' +
       '<div class="div-meta">' + escHtml(d.division_name) + '</div></span>';
+    /* Start the per-APA cooldown so subsequent division buttons can't
+       race the GAS rate-limit. Successful sends consume the quota. */
+    rolApplyThrottle(RATE_LIMIT_SECONDS * 1000);
   } catch (e) {
     btnEl.innerHTML = orig;
     btnEl.disabled = false;
     setStatus($('#lookupStatus'), escHtml(e.message), 'err');
+    /* If the GAS already rate-limited us (e.g. fresh page-load within
+       the prior cooldown), respect it client-side too. The message text
+       is the canonical signal. */
+    if (/wait.*seconds?/i.test(String(e.message))) {
+      rolApplyThrottle(RATE_LIMIT_SECONDS * 1000);
+    }
   }
 }
 

@@ -231,6 +231,16 @@
     <div class="divisions-prompt">Tap a division to send it now:</div>
 
     <div id="divisionList"></div>
+
+    <div id="captainSheetSection" style="margin-top:18px;padding-top:14px;border-top:1px solid #e6e6ee">
+      <div class="divisions-prompt">Captains &amp; co-captains:</div>
+      <button class="btn" id="captainSheetBtn"
+              style="width:100%;background:#fff;color:#0031a1;border:1px solid #0031a1">
+        📇 Email me my team&rsquo;s contact sheet
+      </button>
+      <div class="hint" style="margin-top:6px">Your players&rsquo; phone numbers &amp; emails, sent to your address on file. Captains only.</div>
+      <div id="captainSheetStatus"></div>
+    </div>
   </div>
 
 </div>
@@ -279,6 +289,33 @@ async function callMailer(payload) {
 }
 
 let _state = { apaNumber: null, divisions: [] };
+
+/* Captain contact sheet — emails the caller's team roster (phones by type +
+   email) to their ON-FILE address. Nothing is ever rendered here: the GAS
+   returns only a masked recipient, so a non-captain (or someone typing another
+   captain's number) never sees any PII. */
+async function sendCaptainSheet() {
+  const btn = $('#captainSheetBtn'), st = $('#captainSheetStatus');
+  if (!_state.apaNumber) { setStatus(st, 'Look yourself up first.', 'err'); return; }
+  btn.disabled = true; const orig = btn.innerHTML; btn.textContent = 'Sending…';
+  setStatus(st, '', '');
+  try {
+    const data = await callMailer({ action: 'captain_roster_email', apa_number: _state.apaNumber });
+    if (data.is_captain === false) {
+      setStatus(st, data.note || 'You are not listed as a captain this session.', 'info');
+    } else if (data.blocked) {
+      setStatus(st, 'Your email is on the do-not-contact list, so nothing was sent.', 'err');
+    } else if (data.sent) {
+      setStatus(st, '✓ Sent to <strong>' + (data.sentTo || 'your address on file') + '</strong>. Check your inbox — it can take a minute.', 'ok');
+    } else {
+      setStatus(st, 'Request received.', 'info');
+    }
+  } catch (e) {
+    setStatus(st, (e && e.message) || 'Could not send. Try again.', 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
 
 async function doLookup() {
   const btn   = $('#lookupBtn');
@@ -475,6 +512,7 @@ doLookup = async function() {
 };
 
 $('#lookupBtn').addEventListener('click', doLookup);
+$('#captainSheetBtn').addEventListener('click', sendCaptainSheet);
 $('#apaInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') doLookup();
 });

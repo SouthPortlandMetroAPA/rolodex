@@ -6,4 +6,4 @@
      2. (when registered) UPDATE apa_core.apps SET version=$NEW WHERE app_name='Rolodex'.
      3. git push.
    ════════════════════════════════════════════════════════════════════════ */
-window.APP_VERSION = '0.8';
+window.APP_VERSION = '0.9';

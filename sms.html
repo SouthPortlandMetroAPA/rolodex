@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Text your team — SPM APA</title>
+<style>
+  :root { --spm-primary:#ea002a; --spm-accent:#0031a1; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         background:#fff; color:#1a1a1a; display:flex; min-height:100vh; align-items:center; justify-content:center; padding:24px; }
+  .card { max-width:420px; width:100%; text-align:center; }
+  h1 { font-size:20px; margin:0 0 6px; color:var(--spm-accent); }
+  p  { font-size:15px; line-height:1.5; color:#444; margin:8px 0 18px; }
+  a.num { display:block; padding:12px 14px; margin:8px 0; border-radius:10px; background:var(--spm-accent);
+          color:#fff; text-decoration:none; font-weight:700; font-size:16px; }
+  .hint { font-size:13px; color:#888; margin-top:16px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Opening your Messages app…</h1>
+    <p id="sub">If it doesn’t open automatically, tap a number below to start your text.</p>
+    <div id="list"></div>
+    <div class="hint">This page never stores or sends your team’s numbers — everything happens on your phone.</div>
+  </div>
+<script>
+/* SPM APA — SMS bounce page.
+ * WHY THIS EXISTS: Gmail / Outlook / Yahoo strip <a href="sms:..."> links out of
+ * HTML emails (sms: is not on their allowed-scheme list), so the "Text the team"
+ * links in the Rolodex contact-sheet email arrive as dead text. A normal https://
+ * link IS kept, so the email points here and this page bounces to the phone's SMS app.
+ * PRIVACY: the phone numbers ride in the URL *fragment* (#...), which browsers never
+ * send to the server — no GitHub Pages / Cloudflare log ever sees them. Nothing here
+ * touches the network; it only builds an sms: URI and navigates to it on-device. */
+(function () {
+  var raw = '';
+  try { raw = decodeURIComponent((location.hash || '').replace(/^#/, '')); } catch (e) { raw = (location.hash || '').replace(/^#/, ''); }
+  // keep only phone characters, then split into E.164 numbers
+  var cleaned = raw.replace(/[^0-9+,]/g, '');
+  var nums = cleaned.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s.length >= 7; });
+  var listEl = document.getElementById('list');
+  var subEl  = document.getElementById('sub');
+
+  if (!nums.length) {
+    document.querySelector('h1').textContent = 'No number to text';
+    subEl.textContent = 'This link is missing its phone number. Please reopen it from your team email.';
+    return;
+  }
+
+  var ua = navigator.userAgent || '';
+  var isIOS = /iphone|ipad|ipod/i.test(ua);
+  var groupUri;
+  if (nums.length > 1) {
+    // group text — iOS wants sms:/open?addresses=, others take a comma list (best-effort on Android)
+    groupUri = isIOS ? ('sms:/open?addresses=' + nums.join(',')) : ('sms:' + nums.join(','));
+  } else {
+    groupUri = 'sms:' + nums[0];
+  }
+
+  // Fallback links (shown if the auto-redirect doesn't fire, e.g. on desktop) — each opens one number.
+  nums.forEach(function (n, i) {
+    var a = document.createElement('a');
+    a.className = 'num';
+    a.href = 'sms:' + n;
+    a.textContent = nums.length > 1 ? ('Text player ' + (i + 1)) : ('Text ' + n);
+    listEl.appendChild(a);
+  });
+  if (nums.length > 1) {
+    var g = document.createElement('a');
+    g.className = 'num';
+    g.href = groupUri;
+    g.style.background = '#0a6b3a';
+    g.textContent = 'Text all ' + nums.length + ' at once';
+    listEl.insertBefore(g, listEl.firstChild);
+  }
+
+  // Auto-launch the SMS app.
+  setTimeout(function () { location.replace(groupUri); }, 60);
+})();
+</script>
+</body>
+</html>

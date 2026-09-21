@@ -191,6 +191,20 @@
     font-size: 0.72rem; color: var(--muted);
   }
 </style>
+<script src="https://southportlandmetroapa.github.io/shared/spm-auth.js"></script>
+<style>
+  .sso-gate{ border:2px solid #0031a1; border-radius:14px; padding:16px; background:#f5f8ff; }
+  .sso-gate h3{ margin:0 0 6px; font-size:1.05rem; color:#0031a1; }
+  .sso-gate p{ margin:0 0 12px; font-size:.93rem; color:#444; line-height:1.5; }
+  .sso-in{ width:100%; font:inherit; padding:12px 14px; border:2px solid #d7dbe0; border-radius:10px;
+           min-height:46px; box-sizing:border-box; margin-bottom:10px; }
+  .sso-b{ width:100%; font:inherit; font-weight:800; border:none; border-radius:999px; padding:13px 18px;
+          min-height:48px; cursor:pointer; background:#0031a1; color:#fff; }
+  .sso-m{ font-size:.9rem; margin:10px 0 0; min-height:1.1em; } .sso-m.bad{ color:#b8001f; } .sso-m.good{ color:#0a7d33; }
+  .sso-hdr{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+            margin:0 0 14px; font-size:.92rem; color:#444; }
+  .sso-hdr button{ background:none; border:none; color:#0031a1; font:inherit; font-weight:700; cursor:pointer; }
+</style>
 </head>
 <body>
 
@@ -201,19 +215,24 @@
 
 <div class="container">
 
-  <div class="card" id="lookupCard">
-    <label for="apaInput">Your APA number or email</label>
-    <input type="text" id="apaInput" inputmode="email" autocomplete="email"
-           placeholder="e.g. 12345 or you@example.com" maxlength="80">
-    <div class="hint">
-      Any of these work:
-      <ul>
-        <li>5-digit member number (e.g. <strong>12345</strong>)</li>
-        <li>8-digit member number (e.g. <strong>97212345</strong>)</li>
-        <li>Email address on file with APA</li>
-      </ul>
+  <div class="card" id="ssoGate">
+    <div class="sso-gate">
+      <h3>Sign in first</h3>
+      <p>This page emails your division PDFs and your team's contact sheet, so we need to know it is you.
+         Sign in with the email or APA number on your record and we send a link. No password. If you have
+         signed in to another South Portland Metro app on this device you are already signed in here.</p>
+      <input class="sso-in" type="text" id="ssoIdent" placeholder="Your email or APA number" autocomplete="email">
+      <button class="sso-b" id="ssoSend">Email me a sign-in link</button>
+      <p class="sso-m" id="ssoMsg"></p>
     </div>
-    <button class="btn" id="lookupBtn">Look up my divisions</button>
+  </div>
+
+  <div class="card" id="lookupCard" style="display:none">
+    <div class="sso-hdr"><span>Signed in as <b id="ssoName"></b></span><button type="button" id="ssoOut">Log out</button></div>
+    <label for="apaInput" style="display:none">Your APA number or email</label>
+    <input type="hidden" id="apaInput"><input type="text" id="apaInputUnused" style="display:none" inputmode="email" autocomplete="email"
+           placeholder="e.g. 12345 or you@example.com" maxlength="80">
+    <button class="btn" id="lookupBtn">Show my divisions</button>
     <div id="lookupStatus"></div>
   </div>
 
@@ -512,6 +531,35 @@ doLookup = async function() {
 };
 
 $('#lookupBtn').addEventListener('click', doLookup);
+
+/* ── Shared sign-in (spm-auth.js). HARD gate: this page emails contact data, so a signed-out visitor never
+   reaches the mailer at all. Rolodex already required a resolvable member with an on-file email, so SSO locks
+   nobody out who could use it before. The page still renders no contact data; delivery is still to the address
+   on file; captains-only is still enforced server-side in slate.captain_team_roster. ── */
+function ssoMsg(t, good) { const m = $('#ssoMsg'); m.textContent = t || ''; m.className = 'sso-m' + (t ? (good ? ' good' : ' bad') : ''); }
+function ssoSignedIn(r) {
+  $('#ssoGate').style.display = 'none';
+  $('#lookupCard').style.display = '';
+  $('#ssoName').textContent = r.first_name || r.name || 'you';
+  $('#apaInput').value = r.member_number || '';      /* doLookup reads this; it is no longer typed by anyone */
+  doLookup();                                         /* they are signed in, so just show them their divisions */
+}
+$('#ssoSend').addEventListener('click', function () {
+  const v = $('#ssoIdent').value.trim();
+  if (!v) return ssoMsg('Enter your email or APA number.');
+  $('#ssoSend').disabled = true; ssoMsg('');
+  spmAuth.requestLink(v, 'rolodex').then(function (r) {
+    $('#ssoSend').disabled = false;
+    if (!r.ok) return ssoMsg(r.error || 'We could not find that.');
+    ssoMsg('Check your email for the link. It works for 30 minutes.', true);
+  });
+});
+$('#ssoOut').addEventListener('click', function () { spmAuth.logout(spmAuth.get()); location.reload(); });
+spmAuth.boot({ app: 'rolodex' }).then(function (r) {
+  if (r.signedIn) return ssoSignedIn(r);
+  if (r.error) ssoMsg(r.error);
+});
+spmAuth.onChange(function () { location.reload(); });
 $('#captainSheetBtn').addEventListener('click', sendCaptainSheet);
 $('#apaInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') doLookup();
